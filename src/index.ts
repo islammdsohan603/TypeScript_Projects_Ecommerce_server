@@ -32,7 +32,7 @@ async function run() {
     await client.connect();
     console.log('✅ MongoDB Connected');
 
-    const database = client.db('E-comrease');
+    const database = client.db('Ecommerce');
     const productsCollection = database.collection('products');
 
     // Home Route
