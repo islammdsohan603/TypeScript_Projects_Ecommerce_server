@@ -40,11 +40,14 @@ async function run() {
       res.send('E-commerce Server is Running');
     });
 
-    // Get All Products
-    app.get('/api/products', async (req: Request, res: Response) => {
+    // Get featured Products
+    app.get('/api/featured-products', async (req: Request, res: Response) => {
       try {
-        const products = await productsCollection.find({}).toArray();
-        res.status(200).json(products);
+        const product = await productsCollection
+          .find({ featured: true })
+          .limit(4)
+          .toArray();
+        res.json(product);
       } catch (error) {
         console.error('Error fetching products:', error);
         res.status(500).json({ message: 'Internal Server Error' });
