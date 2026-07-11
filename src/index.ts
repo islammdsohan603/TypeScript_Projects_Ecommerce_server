@@ -12,7 +12,6 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// MongoDB URI
 const uri = process.env.MONGO_DB_URI;
 
 if (!uri) {
@@ -35,6 +34,8 @@ async function run() {
     const database = client.db('Ecommerce');
     const productsCollection = database.collection('products');
 
+    const usersCollection = database.collection('user');
+
     // Home Route
     app.get('/', (req: Request, res: Response) => {
       res.send('E-commerce Server is Running');
@@ -49,13 +50,31 @@ async function run() {
           .toArray();
         res.json(product);
       } catch (error) {
-        console.error('Error fetching products:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
+      }
+    });
+
+    // Get all products api
+    app.get('/api/all-products', async (req: Request, res: Response) => {
+      try {
+        const data = await productsCollection.find().toArray();
+        res.send(data);
+      } catch (error) {
+        res.status(500).json({ message: 'Internal Server Error' });
+      }
+    });
+
+    //  users api get
+    app.get('/api/users', async (req: Request, res: Response) => {
+      try {
+        const users = await usersCollection.find().toArray();
+        res.json(users);
+      } catch (error) {
         res.status(500).json({ message: 'Internal Server Error' });
       }
     });
 
     await client.db('admin').command({ ping: 1 });
-
     console.log('✅ MongoDB Ping Success');
   } catch (error) {
     console.error(error);
