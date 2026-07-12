@@ -109,6 +109,8 @@ async function run() {
                 },
               },
               { $sort: { finalPrice: sortOrder } },
+              { $skip: skip },
+              { $limit: limit },
             ])
             .toArray();
         }
