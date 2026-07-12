@@ -60,6 +60,11 @@ async function run() {
         const category = req.query.category as string;
         const sort = req.query.sort as string;
 
+        // pagination
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = 6;
+        const skip = (page - 1) * limit;
+
         let query: any = {};
         if (category && category !== 'all') {
           query.category = category;
@@ -72,10 +77,17 @@ async function run() {
           sortOrder = -1;
         }
 
+        const totalProducts = await productsCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalProducts / limit);
+
         let data;
 
         if (sortOrder === 0) {
-          data = await productsCollection.find(query).toArray();
+          data = await productsCollection
+            .find(query)
+            .skip(skip)
+            .limit(limit)
+            .toArray();
         } else {
           data = await productsCollection
             .aggregate([
@@ -101,7 +113,14 @@ async function run() {
             .toArray();
         }
 
-        res.json(data);
+        res.json({
+          products: data,
+          meta: {
+            totalProducts,
+            totalPages,
+            currentPage: page,
+          },
+        });
       } catch (error) {
         console.error('🔴 Error in all-products API:', error);
         res.status(500).json({ message: 'Internal Server Error' });
