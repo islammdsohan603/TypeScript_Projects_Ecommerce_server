@@ -65,17 +65,41 @@ async function run() {
           query.category = category;
         }
 
-        let sortQuery: any = {};
+        let sortOrder = 0;
         if (sort === 'low-to-high') {
-          sortQuery.price = 1;
+          sortOrder = 1;
         } else if (sort === 'high-to-low') {
-          sortQuery.price = -1;
+          sortOrder = -1;
         }
 
-        const data = await productsCollection
-          .find(query)
-          .sort(sortQuery)
-          .toArray();
+        let data;
+
+        if (sortOrder === 0) {
+          data = await productsCollection.find(query).toArray();
+        } else {
+          data = await productsCollection
+            .aggregate([
+              { $match: query },
+              {
+                $addFields: {
+                  finalPrice: {
+                    $cond: {
+                      if: {
+                        $and: [
+                          { $ifNull: ['$discountPrice', false] },
+                          { $ne: ['$discountPrice', ''] },
+                        ],
+                      },
+                      then: { $toDouble: '$discountPrice' },
+                      else: { $toDouble: '$price' },
+                    },
+                  },
+                },
+              },
+              { $sort: { finalPrice: sortOrder } },
+            ])
+            .toArray();
+        }
 
         res.json(data);
       } catch (error) {
