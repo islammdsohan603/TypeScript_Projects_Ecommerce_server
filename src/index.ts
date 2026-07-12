@@ -57,9 +57,29 @@ async function run() {
     // Get all products api
     app.get('/api/all-products', async (req: Request, res: Response) => {
       try {
-        const data = await productsCollection.find().toArray();
-        res.send(data);
+        const category = req.query.category as string;
+        const sort = req.query.sort as string;
+
+        let query: any = {};
+        if (category && category !== 'all') {
+          query.category = category;
+        }
+
+        let sortQuery: any = {};
+        if (sort === 'low-to-high') {
+          sortQuery.price = 1;
+        } else if (sort === 'high-to-low') {
+          sortQuery.price = -1;
+        }
+
+        const data = await productsCollection
+          .find(query)
+          .sort(sortQuery)
+          .toArray();
+
+        res.json(data);
       } catch (error) {
+        console.error('🔴 Error in all-products API:', error);
         res.status(500).json({ message: 'Internal Server Error' });
       }
     });
