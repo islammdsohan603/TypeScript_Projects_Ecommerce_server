@@ -212,6 +212,19 @@ async function run() {
       }
     });
 
+    //Add to cart data get api
+
+    app.get('/api/cart/data', async (req: Request, res: Response) => {
+      try {
+        const cartData = await cartCollection.find().toArray();
+
+        res.status(200).json(cartData);
+      } catch (error) {
+        console.log(error);
+        res.status(500).json(error);
+      }
+    });
+
     await client.db('admin').command({ ping: 1 });
     console.log('✅ MongoDB Ping Success');
   } catch (error) {
