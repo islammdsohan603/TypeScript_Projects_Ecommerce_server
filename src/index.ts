@@ -33,6 +33,7 @@ async function run() {
 
     const database = client.db('Ecommerce');
     const productsCollection = database.collection('products');
+    const cartCollection = database.collection('cart');
 
     const usersCollection = database.collection('user');
 
@@ -158,6 +159,55 @@ async function run() {
         const users = await usersCollection.find().toArray();
         res.json(users);
       } catch (error) {
+        res.status(500).json({ message: 'Internal Server Error' });
+      }
+    });
+
+    // Add to Cart API
+    app.post('/api/cart/add', async (req: Request, res: Response) => {
+      try {
+        const { productId, title, price, images, userEmail } = req.body;
+
+        if (!userEmail) {
+          return res
+            .status(401)
+            .json({ message: 'Unauthorized! Please login first.' });
+        }
+
+        // ইউজার ইতিমধ্যে এই প্রোডাক্টটি কার্টে যোগ করেছে কিনা চেক করা (ঐচ্ছিক কিন্তু বেস্ট প্র্যাকটিস)
+        const existingItem = await cartCollection.findOne({
+          productId,
+          userEmail,
+        });
+
+        if (existingItem) {
+          // যদি আগে থেকেই থাকে তবে কোয়ান্টিটি ১ বাড়িয়ে দেওয়া
+          await cartCollection.updateOne(
+            { productId, userEmail },
+            { $inc: { quantity: 1 } },
+          );
+          return res
+            .status(200)
+            .json({ message: 'Product quantity updated in cart' });
+        }
+
+        // নতুন কার্ট আইটেম অবজেক্ট তৈরি
+        const cartItem = {
+          productId,
+          title,
+          price,
+          images,
+          userEmail,
+          quantity: 1,
+          addedAt: new Date(),
+        };
+
+        const result = await cartCollection.insertOne(cartItem);
+        res
+          .status(201)
+          .json({ message: 'Product added to cart successfully', result });
+      } catch (error) {
+        console.error('🔴 Error in Add to Cart API:', error);
         res.status(500).json({ message: 'Internal Server Error' });
       }
     });
