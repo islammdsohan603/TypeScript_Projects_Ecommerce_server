@@ -134,6 +134,13 @@ async function run() {
     app.get('/api/details/:id', async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ message: 'Invalid Products ID format' });
+        }
+
         const query = { _id: new ObjectId(id) };
         const result = await productsCollection.findOne(query);
 
