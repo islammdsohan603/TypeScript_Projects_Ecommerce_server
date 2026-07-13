@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
 
 dotenv.config();
 
@@ -127,6 +127,22 @@ async function run() {
         console.error('🔴 Error in all-products API:', error);
         res.status(500).json({ message: 'Internal Server Error' });
       }
+    });
+
+    // details page api
+
+    app.get('/api/details/:id', async (req: Request, res: Response) => {
+      try {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await productsCollection.findOne(query);
+
+        if (!result) {
+          return res.status(404).send({ message: 'Products not found' });
+        }
+
+        res.send(result);
+      } catch (error) {}
     });
 
     //  users api get
