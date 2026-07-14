@@ -212,16 +212,22 @@ async function run() {
       }
     });
 
-    //Add to cart data get api
-
+    // Get user-specific cart data
     app.get('/api/cart/data', async (req: Request, res: Response) => {
       try {
-        const cartData = await cartCollection.find().toArray();
+        const email = req.query.email as string;
 
-        res.status(200).json(cartData);
+        if (!email) {
+          return res.status(400).json({ message: 'User email is required' });
+        }
+
+        const query = { userEmail: email };
+        const result = await cartCollection.find(query).toArray();
+
+        res.json(result);
       } catch (error) {
-        console.log(error);
-        res.status(500).json(error);
+        console.error('Error fetching cart data:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
       }
     });
 
