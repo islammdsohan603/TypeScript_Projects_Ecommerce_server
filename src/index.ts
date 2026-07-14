@@ -255,6 +255,74 @@ async function run() {
       }
     });
 
+    // updata Quantity
+
+    app.patch(
+      '/api/cart/update-quantity',
+      async (req: Request, res: Response) => {
+        try {
+          const { itemId, quantity } = req.body;
+
+          // ১. ভ্যালিডেশন চেক (ডাটা ঠিকঠাক এসেছে কিনা)
+          if (!itemId || quantity === undefined) {
+            return res.status(400).json({
+              success: false,
+              message: 'Item ID and Quantity are required',
+            });
+          }
+
+          // ২. মঙ্গোডিবি আইডি ফরম্যাট ভ্যালিডেশন
+          if (!ObjectId.isValid(itemId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid Item ID format',
+            });
+          }
+
+          // ৩. কোয়ান্টিটি যেন ১ এর নিচে না নামতে পারে
+          const newQuantity = Number(quantity);
+          if (isNaN(newQuantity) || newQuantity < 1) {
+            return res.status(400).json({
+              success: false,
+              message: 'Quantity must be a valid number and at least 1',
+            });
+          }
+
+          // ৪. ডাটাবেজে আপডেট অপারেশন চালানো
+          const filter = { _id: new ObjectId(itemId) };
+          const updateDoc = {
+            $set: {
+              quantity: newQuantity,
+            },
+          };
+
+          // আপনার কালেকশনের নাম অনুযায়ী এটি পরিবর্তন করতে পারেন (যেমন: cartCollection)
+          const result = await cartCollection.updateOne(filter, updateDoc);
+
+          // ৫. আইটেমটি ডাটাবেজে খুঁজে না পাওয়া গেলে
+          if (result.matchedCount === 0) {
+            return res.status(404).json({
+              success: false,
+              message: 'Cart item not found',
+            });
+          }
+
+          // ৬. সাকসেস রেসপন্স
+          return res.status(200).json({
+            success: true,
+            message: 'Quantity updated successfully',
+            updatedQuantity: newQuantity,
+          });
+        } catch (error) {
+          console.error('Error updating cart quantity:', error);
+          return res.status(500).json({
+            success: false,
+            message: 'Internal Server Error',
+          });
+        }
+      },
+    );
+
     await client.db('admin').command({ ping: 1 });
     console.log('✅ MongoDB Ping Success');
   } catch (error) {
