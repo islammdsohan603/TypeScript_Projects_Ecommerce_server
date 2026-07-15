@@ -73,13 +73,13 @@ async function run() {
 
             return {
               price_data: {
-                currency: 'usd', // অথবা আপনার কারেন্সি ('bdt', 'inr')
+                currency: 'usd',
                 product_data: {
                   name: item.title || item.name,
-                  images: itemImages.filter(img => img.startsWith('http')), // শুধুমাত্র ভ্যালিড URL পাঠাবে
+                  images: itemImages.filter(img => img.startsWith('http')),
                 },
-                // Stripe এ পয়সা/সেন্ট (Cents) এ হিসাব হয়, তাই ১০০ দিয়ে গুণ ও রাউন্ড করা হয়েছে
-                unit_amount: Math.round(Number(item.price) * 100),
+
+                unit_amount: Math.round(Number(item.price) * 1),
               },
               quantity: item.quantity || 1,
             };
