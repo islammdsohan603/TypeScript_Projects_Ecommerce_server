@@ -479,22 +479,35 @@ async function run() {
       },
     );
 
-    // get order data
-
+    // Get order data (ইউজার ভিত্তিক ফিল্টারিং সহ)
     app.get('/api/order/payment', async (req: Request, res: Response) => {
       try {
-        const data = await ordersCollection.find().toArray();
+        const email = req.query.email as string;
 
-        if (!data) {
-          throw new Error('Faild data');
+        let query = {};
+
+        // যদি রিকোয়েস্টে ইমেইল পাঠানো হয়, তবে শুধুমাত্র সেই ইউজারের অর্ডার ফিল্টার করবে
+        if (email) {
+          query = { userEmail: email }; // আপনার অর্ডারে যে ফিল্ডে ইমেইল সেভ করেন (যেমন: userEmail বা email)
+        }
+
+        // ডাটাবেজ থেকে অর্ডারগুলো লেটেস্ট ডেট অনুযায়ী সর্ট করে নিয়ে আসা
+        const data = await ordersCollection
+          .find(query)
+          .sort({ addedAt: -1 }) // অথবা সেশনের তৈরি হওয়া ডেট অনুযায়ী সর্ট করুন
+          .toArray();
+
+        // মঙ্গোডিবি থেকে খালি অ্যারে আসলেও যেন প্রপারলি হ্যান্ডেল হয়
+        if (!data || data.length === 0) {
+          return res.status(200).json([]); // খালি কার্ট বা অর্ডারের ক্ষেত্রে খালি অ্যারে পাঠানোই নিরাপদ
         }
 
         res.status(200).send(data);
-      } catch (error) {
-        console.error('Error updating cart quantity:', error);
+      } catch (error: any) {
+        console.error('🔴 Error fetching order data:', error);
         return res.status(500).json({
           success: false,
-          message: 'Internal Server Error',
+          message: error.message || 'Internal Server Error',
         });
       }
     });
