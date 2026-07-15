@@ -2,11 +2,17 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
+import Stripe from 'stripe'; // 🌟 Stripe ইম্পোর্ট করা হয়েছে
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+// Stripe ইনিশিয়ালাইজ করা
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: '2025-01-27.acacia' as any, // লেটেস্ট স্টেবল API ভার্সন
+});
 
 // Middleware
 app.use(cors());
@@ -34,13 +40,80 @@ async function run() {
     const database = client.db('Ecommerce');
     const productsCollection = database.collection('products');
     const cartCollection = database.collection('cart');
-
     const usersCollection = database.collection('user');
+    const ordersCollection = database.collection('orders'); // 🌟 অর্ডার ট্র্যাক করার জন্য (ঐচ্ছিক)
 
     // Home Route
     app.get('/', (req: Request, res: Response) => {
       res.send('E-commerce Server is Running');
     });
+
+    // ==========================================
+    // 💳 STRIPE CHECKOUT API ROUTE START
+    // ==========================================
+    app.post(
+      '/api/create-checkout-session',
+      async (req: Request, res: Response) => {
+        try {
+          const { cartItems, userEmail } = req.body;
+
+          if (!cartItems || cartItems.length === 0) {
+            return res.status(400).json({ message: 'Cart is empty!' });
+          }
+
+          // কার্ট আইটেমগুলোকে Stripe-এর নিজস্ব ফরম্যাটে কনভার্ট করা
+          const line_items = cartItems.map((item: any) => {
+            // ইমেজের অ্যারে হ্যান্ডেল করা (যদি string বা array থাকে)
+            let itemImages: string[] = [];
+            if (item.images) {
+              itemImages = Array.isArray(item.images)
+                ? item.images
+                : [item.images];
+            }
+
+            return {
+              price_data: {
+                currency: 'usd', // অথবা আপনার কারেন্সি ('bdt', 'inr')
+                product_data: {
+                  name: item.title || item.name,
+                  images: itemImages.filter(img => img.startsWith('http')), // শুধুমাত্র ভ্যালিড URL পাঠাবে
+                },
+                // Stripe এ পয়সা/সেন্ট (Cents) এ হিসাব হয়, তাই ১০০ দিয়ে গুণ ও রাউন্ড করা হয়েছে
+                unit_amount: Math.round(Number(item.price) * 100),
+              },
+              quantity: item.quantity || 1,
+            };
+          });
+
+          const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
+          // Stripe সেশন তৈরি করা
+          const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items,
+            mode: 'payment',
+            customer_email: userEmail || undefined,
+            // পেমেন্ট সফল বা ব্যর্থ হলে কোন ফ্রন্টএন্ড পেজে রিডাইরেক্ট হবে
+            success_url: `${clientUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${clientUrl}/payment/failed`,
+            metadata: {
+              userEmail: userEmail || 'guest',
+            },
+          });
+
+          res.json({ id: session.id, url: session.url });
+        } catch (error: any) {
+          console.error('🔴 Stripe Session Error:', error);
+          res.status(500).json({
+            message: 'Stripe Payment Initialization Failed',
+            error: error.message,
+          });
+        }
+      },
+    );
+    // ==========================================
+    // 💳 STRIPE CHECKOUT API ROUTE END
+    // ==========================================
 
     // Get featured Products
     app.get('/api/featured-products', async (req: Request, res: Response) => {
@@ -61,7 +134,6 @@ async function run() {
         const category = req.query.category as string;
         const sort = req.query.sort as string;
 
-        // pagination
         const page = parseInt(req.query.page as string) || 1;
         const limit = 6;
         const skip = (page - 1) * limit;
@@ -131,7 +203,6 @@ async function run() {
     });
 
     // details page api
-
     app.get('/api/details/:id', async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
@@ -153,7 +224,7 @@ async function run() {
       } catch (error) {}
     });
 
-    //  users api get
+    // users api get
     app.get('/api/users', async (req: Request, res: Response) => {
       try {
         const users = await usersCollection.find().toArray();
@@ -174,14 +245,12 @@ async function run() {
             .json({ message: 'Unauthorized! Please login first.' });
         }
 
-        // ইউজার ইতিমধ্যে এই প্রোডাক্টটি কার্টে যোগ করেছে কিনা চেক করা (ঐচ্ছিক কিন্তু বেস্ট প্র্যাকটিস)
         const existingItem = await cartCollection.findOne({
           productId,
           userEmail,
         });
 
         if (existingItem) {
-          // যদি আগে থেকেই থাকে তবে কোয়ান্টিটি ১ বাড়িয়ে দেওয়া
           await cartCollection.updateOne(
             { productId, userEmail },
             { $inc: { quantity: 1 } },
@@ -191,7 +260,6 @@ async function run() {
             .json({ message: 'Product quantity updated in cart' });
         }
 
-        // নতুন কার্ট আইটেম অবজেক্ট তৈরি
         const cartItem = {
           productId,
           title,
@@ -212,7 +280,7 @@ async function run() {
       }
     });
 
-    // Get  cart data
+    // Get cart data
     app.get('/api/cart/data', async (req: Request, res: Response) => {
       try {
         const email = req.query.email as string;
@@ -230,8 +298,8 @@ async function run() {
         res.status(500).json({ message: 'Internal Server Error' });
       }
     });
-    // delete item from cart
 
+    // delete item from cart
     app.delete('/api/cart/delete/:id', async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
@@ -255,15 +323,13 @@ async function run() {
       }
     });
 
-    // updata Quantity
-
+    // update Quantity
     app.patch(
       '/api/cart/update-quantity',
       async (req: Request, res: Response) => {
         try {
           const { itemId, quantity } = req.body;
 
-          // ১. ভ্যালিডেশন চেক (ডাটা ঠিকঠাক এসেছে কিনা)
           if (!itemId || quantity === undefined) {
             return res.status(400).json({
               success: false,
@@ -271,7 +337,6 @@ async function run() {
             });
           }
 
-          // ২. মঙ্গোডিবি আইডি ফরম্যাট ভ্যালিডেশন
           if (!ObjectId.isValid(itemId)) {
             return res.status(400).json({
               success: false,
@@ -279,7 +344,6 @@ async function run() {
             });
           }
 
-          // ৩. কোয়ান্টিটি যেন ১ এর নিচে না নামতে পারে
           const newQuantity = Number(quantity);
           if (isNaN(newQuantity) || newQuantity < 1) {
             return res.status(400).json({
@@ -288,7 +352,6 @@ async function run() {
             });
           }
 
-          // ৪. ডাটাবেজে আপডেট অপারেশন চালানো
           const filter = { _id: new ObjectId(itemId) };
           const updateDoc = {
             $set: {
@@ -296,10 +359,8 @@ async function run() {
             },
           };
 
-          // আপনার কালেকশনের নাম অনুযায়ী এটি পরিবর্তন করতে পারেন (যেমন: cartCollection)
           const result = await cartCollection.updateOne(filter, updateDoc);
 
-          // ৫. আইটেমটি ডাটাবেজে খুঁজে না পাওয়া গেলে
           if (result.matchedCount === 0) {
             return res.status(404).json({
               success: false,
@@ -307,7 +368,6 @@ async function run() {
             });
           }
 
-          // ৬. সাকসেস রেসপন্স
           return res.status(200).json({
             success: true,
             message: 'Quantity updated successfully',
@@ -333,5 +393,5 @@ async function run() {
 run().catch(console.error);
 
 app.listen(port, () => {
-  console.log(`🚀 Server running on:${port}`);
+  console.log(`🚀 Server running on: http://localhost:${port}`);
 });
