@@ -118,93 +118,95 @@ async function run() {
     // ==========================================
     // 📦 VERIFY PAYMENT & SAVE ORDER ROUTE
     // ==========================================
-    app.post(
-      '/api/verify-payment',
-      async (req: Request, res: Response) => {
-        try {
-          const { sessionId } = req.body;
+    app.post('/api/verify-payment', async (req: Request, res: Response) => {
+      try {
+        const { sessionId } = req.body;
 
-          if (!sessionId) {
-            return res.status(400).json({ message: 'Session ID is required' });
-          }
+        if (!sessionId) {
+          return res.status(400).json({ message: 'Session ID is required' });
+        }
 
-          // 1️⃣ Retrieve the full Stripe session with line_items expanded
-          const session = await stripe.checkout.sessions.retrieve(sessionId, {
-            expand: ['line_items', 'line_items.data.price.product'],
+        // 1️⃣ Retrieve the full Stripe session with line_items expanded
+        const session = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ['line_items', 'line_items.data.price.product'],
+        });
+
+        // 2️⃣ Guard: only proceed if Stripe confirms payment succeeded
+        if (session.payment_status !== 'paid') {
+          return res.status(402).json({
+            message: 'Payment not completed',
+            status: session.payment_status,
           });
+        }
 
-          // 2️⃣ Guard: only proceed if Stripe confirms payment succeeded
-          if (session.payment_status !== 'paid') {
-            return res.status(402).json({
-              message: 'Payment not completed',
-              status: session.payment_status,
-            });
-          }
+        // 3️⃣ Idempotency — check if this session was already saved
+        const existingOrder = await ordersCollection.findOne({ sessionId });
+        if (existingOrder) {
+          return res.status(200).json({
+            message: 'Order already saved',
+            order: existingOrder,
+            alreadySaved: true,
+          });
+        }
 
-          // 3️⃣ Idempotency — check if this session was already saved
-          const existingOrder = await ordersCollection.findOne({ sessionId });
-          if (existingOrder) {
-            return res.status(200).json({
-              message: 'Order already saved',
-              order: existingOrder,
-              alreadySaved: true,
-            });
-          }
+        const userEmail =
+          session.metadata?.userEmail || session.customer_email || 'guest';
 
-          const userEmail = session.metadata?.userEmail || session.customer_email || 'guest';
-
-          // 4️⃣ Build order items from Stripe's expanded line_items
-          const orderItems = (session.line_items?.data || []).map((lineItem: any) => {
+        // 4️⃣ Build order items from Stripe's expanded line_items
+        const orderItems = (session.line_items?.data || []).map(
+          (lineItem: any) => {
             const product = lineItem.price?.product;
             return {
               name: product?.name || lineItem.description || 'Unknown Product',
               image: product?.images?.[0] || null,
               quantity: lineItem.quantity,
-              unitAmount: lineItem.price?.unit_amount,         // in cents
+              unitAmount: lineItem.price?.unit_amount, // in cents
               unitAmountUSD: (lineItem.price?.unit_amount ?? 0) / 100, // in dollars
-              totalAmount: lineItem.amount_total,              // in cents
-              totalAmountUSD: lineItem.amount_total / 100,     // in dollars
+              totalAmount: lineItem.amount_total, // in cents
+              totalAmountUSD: lineItem.amount_total / 100, // in dollars
               currency: lineItem.currency,
             };
-          });
+          },
+        );
 
-          // 5️⃣ Build the complete order document
-          const orderDocument = {
-            sessionId,
-            paymentIntentId: session.payment_intent,
-            userEmail,
-            status: 'paid',
-            items: orderItems,
-            totalAmount: session.amount_total,                 // in cents
-            totalAmountUSD: (session.amount_total ?? 0) / 100, // in dollars
-            currency: session.currency,
-            paidAt: new Date(),
-            createdAt: new Date(),
-          };
+        // 5️⃣ Build the complete order document
+        const orderDocument = {
+          sessionId,
+          paymentIntentId: session.payment_intent,
+          userEmail,
+          status: 'paid',
+          items: orderItems,
+          totalAmount: session.amount_total, // in cents
+          totalAmountUSD: (session.amount_total ?? 0) / 100, // in dollars
+          currency: session.currency,
+          paidAt: new Date(),
+          createdAt: new Date(),
+        };
 
-          // 6️⃣ Save order to the userOrder collection
-          const result = await ordersCollection.insertOne(orderDocument);
-          console.log(`✅ Order saved for ${userEmail} | Session: ${sessionId}`);
+        // 6️⃣ Save order to the userOrder collection
+        const result = await ordersCollection.insertOne(orderDocument);
+        console.log(`✅ Order saved for ${userEmail} | Session: ${sessionId}`);
 
-          // 7️⃣ Clear the user's cart after a successful order
-          if (userEmail && userEmail !== 'guest') {
-            const deleteResult = await cartCollection.deleteMany({ userEmail });
-            console.log(`🛒 Cart cleared: ${deleteResult.deletedCount} item(s) removed for ${userEmail}`);
-          }
-
-          return res.status(201).json({
-            message: 'Order saved successfully',
-            order: { ...orderDocument, _id: result.insertedId },
-          });
-        } catch (error: any) {
-          console.error('🔴 Verify Payment Error:', error);
-          return res.status(500).json({
-            message: 'Failed to verify payment',
-            error: error.message,
-          });
+        // 7️⃣ Clear the user's cart after a successful order
+        if (userEmail && userEmail !== 'guest') {
+          const deleteResult = await cartCollection.deleteMany({ userEmail });
+          console.log(
+            `🛒 Cart cleared: ${deleteResult.deletedCount} item(s) removed for ${userEmail}`,
+          );
         }
-      },
-    );
+
+        return res.status(201).json({
+          message: 'Order saved successfully',
+          order: { ...orderDocument, _id: result.insertedId },
+        });
+      } catch (error: any) {
+        console.error('🔴 Verify Payment Error:', error);
+        return res.status(500).json({
+          message: 'Failed to verify payment',
+          error: error.message,
+        });
+      }
+    });
     // ==========================================
     // 📦 VERIFY PAYMENT & SAVE ORDER ROUTE END
     // ==========================================
@@ -476,6 +478,26 @@ async function run() {
         }
       },
     );
+
+    // get order data
+
+    app.get('/api/order/payment', async (req: Request, res: Response) => {
+      try {
+        const data = await ordersCollection.find().toArray();
+
+        if (!data) {
+          throw new Error('Faild data');
+        }
+
+        res.status(200).send(data);
+      } catch (error) {
+        console.error('Error updating cart quantity:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Internal Server Error',
+        });
+      }
+    });
 
     await client.db('admin').command({ ping: 1 });
     console.log('✅ MongoDB Ping Success');
