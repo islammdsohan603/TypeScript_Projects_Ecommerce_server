@@ -32,16 +32,23 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
+const database = client.db('Ecommerce');
+const productsCollection = database.collection('products');
+const cartCollection = database.collection('cart');
+const usersCollection = database.collection('user');
+const ordersCollection = database.collection('userOrder');
+
+async function connectToMongo() {
   try {
     await client.connect();
     console.log('✅ MongoDB Connected');
-
-    const database = client.db('Ecommerce');
-    const productsCollection = database.collection('products');
-    const cartCollection = database.collection('cart');
-    const usersCollection = database.collection('user');
-    const ordersCollection = database.collection('userOrder');
+    await client.db('admin').command({ ping: 1 });
+    console.log('✅ MongoDB Ping Success');
+  } catch (error) {
+    console.error(error);
+  }
+}
+connectToMongo();
 
     // Home Route
     app.get('/', (req: Request, res: Response) => {
@@ -512,15 +519,10 @@ async function run() {
       }
     });
 
-    await client.db('admin').command({ ping: 1 });
-    console.log('✅ MongoDB Ping Success');
-  } catch (error) {
-    console.error(error);
-  }
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`🚀 Server running on: http://localhost:${port}`);
+  });
 }
 
-run().catch(console.error);
-
-app.listen(port, () => {
-  console.log(`🚀 Server running on: http://localhost:${port}`);
-});
+module.exports = app;
